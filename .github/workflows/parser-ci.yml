@@ -1,0 +1,68 @@
+name: Parser CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'services/parser/**'
+      - 'packages/estet-shared/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/parser/**'
+      - 'packages/estet-shared/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install shared package
+        run: |
+          cd packages/estet-shared
+          pip install -e .
+
+      - name: Install parser dependencies
+        run: |
+          cd services/parser
+          pip install -r requirements.txt
+
+      - name: Run linting
+        run: |
+          pip install flake8 black
+          flake8 services/parser/ packages/estet-shared/ --max-line-length=120
+          black --check services/parser/ packages/estet-shared/
+
+      - name: Run tests
+        run: |
+          cd services/parser
+          pytest -v --tb=short
+
+  build-docker:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          cd services/parser
+          docker build -t estet-parser:latest .
+
+      - name: Test Docker image
+        run: |
+          docker run --rm estet-parser:latest --help || true

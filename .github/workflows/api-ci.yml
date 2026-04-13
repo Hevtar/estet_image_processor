@@ -1,0 +1,86 @@
+name: Vision API CI
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'services/vision-api/**'
+      - 'packages/estet-shared/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/vision-api/**'
+      - 'packages/estet-shared/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11']
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: estet
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: estet_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install shared package
+        run: |
+          cd packages/estet-shared
+          pip install -e .
+
+      - name: Install vision-api dependencies
+        run: |
+          cd services/vision-api
+          pip install -r requirements.txt
+
+      - name: Run linting
+        run: |
+          pip install flake8 black
+          flake8 services/vision-api/ packages/estet-shared/ --max-line-length=120
+          black --check services/vision-api/ packages/estet-shared/
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://estet:test_password@localhost:5432/estet_platform_test
+          POLZA_API_KEY: test_key
+        run: |
+          cd services/vision-api
+          pytest -v --tb=short
+
+  build-docker:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          cd services/vision-api
+          docker build -t estet-vision-api:latest .
+
+      - name: Test Docker image
+        run: |
+          docker run --rm estet-vision-api:latest --help || true

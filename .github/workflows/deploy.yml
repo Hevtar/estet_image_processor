@@ -1,0 +1,56 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy to server
+        env:
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+        run: |
+          # Copy files to server
+          scp -o StrictHostKeyChecking=no -r . $SERVER_USER@$SERVER_HOST:/opt/estet-platform
+
+          # SSH and deploy
+          ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST << 'EOF'
+            cd /opt/estet-platform
+
+            # Copy environment file
+            cp .env.production .env
+
+            # Build and start containers
+            docker-compose -f infrastructure/docker-compose.prod.yml pull
+            docker-compose -f infrastructure/docker-compose.prod.yml build
+            docker-compose -f infrastructure/docker-compose.prod.yml up -d
+
+            # Wait for services to start
+            sleep 10
+
+            # Health check
+            curl -f http://localhost:8000/health || exit 1
+
+            echo "✅ Deploy successful"
+          EOF
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            console.log('Deploy failed!')
