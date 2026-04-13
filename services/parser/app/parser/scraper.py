@@ -60,14 +60,16 @@ class Scraper:
         soup = BeautifulSoup(html, "html.parser")
         product_urls = []
 
-        # Ищем ссылки на продукты (типичные селекторы для каталога)
+        # Селекторы для карточек продуктов на ESTET
         selectors = [
+            "a.product-card__link",
+            "a.product-item__link",
             "a.product-card",
             "a.catalog-item",
-            ".products-list a",
-            ".catalog-grid a",
+            ".products-list a[href*='/product/']",
+            ".catalog-grid a[href*='/product/']",
+            ".products a[href*='/product/']",
             "a[href*='/product/']",
-            "a[href*='/door/']",
         ]
 
         for selector in selectors:
@@ -77,15 +79,28 @@ class Scraper:
                     href = link.get("href", "")
                     if href:
                         from urllib.parse import urljoin
-                        product_urls.append(urljoin(self.base_url, href))
+                        full_url = urljoin(self.base_url, href)
+                        # Фильтруем только product страницы
+                        if '/product/' in full_url:
+                            product_urls.append(full_url)
+                logger.info(f"🔗 Найдено {len(product_urls)} продуктов (селектор: {selector})")
                 break
 
-        logger.info(f"🔗 Найдено {len(product_urls)} продуктов на странице")
-        return list(set(product_urls))  # Убираем дубликаты
+        # Убираем дубликаты
+        unique_urls = list(set(product_urls))
+        logger.info(f"🔗 Уникальных продуктов: {len(unique_urls)}")
+        return unique_urls
 
     def _extract_name(self, soup: BeautifulSoup) -> str:
         """Извлекает название продукта"""
-        selectors = ["h1.product-title", "h1", ".product-name", ".product-title"]
+        selectors = [
+            "h1.product-title",
+            "h1.product-name",
+            "h1",
+            ".product-name",
+            ".product-title",
+            ".product__title",
+        ]
         for selector in selectors:
             elem = soup.select_one(selector)
             if elem:
@@ -202,18 +217,35 @@ class Scraper:
             ".product-images img",
             ".gallery img",
             ".product-photo img",
+            ".product__image img",
+            ".product-image img",
+            ".product-gallery picture img",
+            "picture source img",
         ]
 
         for selector in selectors:
             images = soup.select(selector)
             if images:
                 for img in images:
-                    src = img.get("src") or img.get("data-src")
+                    # Проверяем src, data-src, data-lazy-src
+                    src = img.get("src") or img.get("data-src") or img.get("data-lazy-src")
                     if src:
                         from urllib.parse import urljoin
                         image_urls.append(urljoin(self.base_url, src))
                 break
 
+        # Если не нашли через селекторы, ищем все img в product-контейнере
+        if not image_urls:
+            product_containers = soup.select(".product, .product-card, .product-item")
+            for container in product_containers:
+                imgs = container.find_all("img")
+                for img in imgs:
+                    src = img.get("src") or img.get("data-src") or img.get("data-lazy-src")
+                    if src:
+                        from urllib.parse import urljoin
+                        image_urls.append(urljoin(self.base_url, src))
+
+        logger.info(f"🖼️ Найдено {len(image_urls)} изображений")
         return image_urls
 
     def _extract_sizes(self, soup: BeautifulSoup) -> List[str]:

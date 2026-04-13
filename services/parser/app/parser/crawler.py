@@ -126,14 +126,23 @@ class Crawler:
         Returns:
             List[str]: URL категорий
         """
-        html = self.get_page("/katalog")
+        # Используем предопределённые категории из конфига
+        categories = getattr(settings, 'ESTET_CATALOG_CATEGORIES', [])
+        if categories:
+            urls = [self.base_url + cat for cat in categories if not cat.startswith('http')]
+            logger.info(f"📂 Найдено {len(urls)} категорий (из конфига)")
+            return urls
+
+        # Fallback: парсим страницу каталога
+        logger.info("⚠️ ESTET_CATALOG_CATEGORIES не заданы, пытаемся распарсить /catalog")
+        html = self.get_page("/catalog")
         urls = []
 
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
 
         # Ищем ссылки на категории
-        catalog_links = soup.select("a[href*='kategoriya'], a[href*='category']")
+        catalog_links = soup.select("a[href*='kategoriya'], a[href*='category'], a[href*='/catalog/']")
         for link in catalog_links:
             href = link.get("href", "")
             if href and self.base_url in href:

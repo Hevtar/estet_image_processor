@@ -31,7 +31,18 @@ class ParserSettings(BaseSettings):
 
     # Base URLs
     ESTET_BASE_URL: str = "https://moscow.estetdveri.ru"
-    ESTET_CATALOG_URL: str = "https://moscow.estetdveri.ru/katalog"
+    ESTET_CATALOG_URL: str = "https://moscow.estetdveri.ru/catalog"
+
+    # Catalog categories (разделы каталога)
+    ESTET_CATALOG_CATEGORIES: list = [
+        "/catalog/mezhkomnatnye-dveri/",
+        "/catalog/skrytye-dveri/",
+        "/catalog/vkhodnye-dveri/",
+        "/catalog/mezhkomnatnye-peregorodki/",
+        "/catalog/mebel/",
+        "/catalog/dekorativnye-reyki/",
+        "/catalog/stenovye-paneli/",
+    ]
 
     # Logging
     LOG_LEVEL: str = "INFO"
