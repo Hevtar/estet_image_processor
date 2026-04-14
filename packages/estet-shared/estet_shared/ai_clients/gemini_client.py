@@ -18,8 +18,8 @@ class GeminiClient:
     def __init__(
         self,
         api_key: str,
-        api_url: str = "https://api.polza.ai/v1",
-        model: str = "google/gemini-2.0-flash-lite",
+        api_url: str = "https://polza.ai/api/v2",
+        model: str = "google/gemini-2.0-flash-lite-001",
         max_retries: int = 3,
     ):
         self.api_key = api_key
