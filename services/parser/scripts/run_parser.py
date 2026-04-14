@@ -219,18 +219,58 @@ async def run_single_collection(url: str, skip_images: bool = False, skip_ai: bo
     """Парсинг одной коллекции"""
     logger.info(f"🚀 Запуск парсинга коллекции: {url}")
 
-    with Crawler(headless=settings.PARSER_HEADLESS_BROWSER) as crawler:
-        html = crawler.get_page(url)
-        scraper = Scraper()
-        product_urls = scraper.parse_collection_page(html)
+    stats = {
+        "collections_found": 1,
+        "products_found": 0,
+        "products_processed": 0,
+        "images_downloaded": 0,
+        "ai_descriptions_generated": 0,
+        "embeddings_generated": 0,
+        "errors": 0,
+    }
 
-        logger.info(f"📦 Найдено {len(product_urls)} продуктов")
+    db = Database(settings.DATABASE_URL)
+    await db.create_tables()
+    gemini = GeminiClient(api_key=settings.POLZA_API_KEY)
+    description_gen = DescriptionGenerator(gemini)
+    embedding_gen = EmbeddingGenerator(gemini)
+    validator = DataValidator()
+    exporter = Exporter(db)
+    storage = StorageManager()
+    url_discovery = URLDiscovery(settings.ESTET_BASE_URL)
 
-        for product_url in product_urls:
-            logger.info(f"🔍 Парсинг: {product_url}")
-            # ... та же логика что и в full_parse
+    try:
+        with Crawler(headless=settings.PARSER_HEADLESS_BROWSER) as crawler:
+            # Используем новый метод для SPA
+            product_urls = crawler.get_product_urls_from_catalog(url)
+            stats["products_found"] = len(product_urls)
 
-    logger.info("✅ Парсинг коллекции завершен")
+            logger.info(f"📦 Найдено {len(product_urls)} продуктов/моделей")
+
+            scraper = Scraper()
+
+            for product_url in product_urls:
+                if url_discovery.is_visited(product_url):
+                    continue
+
+                logger.info(f"🔍 Парсинг: {product_url}")
+                await _parse_product(
+                    crawler, scraper, product_url, url_discovery,
+                    validator, exporter, db, embedding_gen,
+                    description_gen, skip_images, skip_ai, stats, storage
+                )
+
+        elapsed = (datetime.utcnow() - datetime.utcnow()).total_seconds()
+        logger.info("=" * 50)
+        logger.info("✅ Парсинг коллекции завершен!")
+        logger.info(f"📊 Статистика: {stats}")
+        logger.info("=" * 50)
+
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка: {e}")
+        stats["errors"] += 1
+    finally:
+        await db.close()
 
 
 async def run_single_product(url: str, skip_ai: bool = False):
