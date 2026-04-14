@@ -254,37 +254,127 @@ class Scraper:
         return None
 
     def _extract_description(self, soup: BeautifulSoup) -> str:
-        """Извлекает описание — .product-description__info"""
-        desc = soup.select_one(".product-description__info")
-        if desc:
-            # Получаем текст без лишних пробелов
-            text = desc.get_text(separator=" ", strip=True)
-            # Убираем повторяющиеся пробелы
-            import re
-            text = re.sub(r"\s+", " ", text)
-            return text[:2000]  # Ограничиваем длину
+        """
+        Извлекает описание продукта.
+        Пробует несколько селекторов характерных для Nuxt.js SPA.
+        """
+        import re
+
+        selectors = [
+            ".product-description__info",
+            ".product-description__text",
+            ".product-detail__description",
+            ".product-about__text",
+            ".collection-description",
+            "[itemprop='description']",
+            ".product-text",
+            ".about-product",
+        ]
+
+        for selector in selectors:
+            elem = soup.select_one(selector)
+            if elem:
+                text = elem.get_text(separator=" ", strip=True)
+                text = re.sub(r"\s+", " ", text).strip()
+                if len(text) > 30:  # Минимум 30 символов — не пустышка
+                    logger.debug(f"✅ Описание найдено через селектор: {selector}")
+                    return text[:3000]
+
+        # Fallback: ищем параграфы внутри main контента
+        main = soup.select_one("main, .page-content, #__nuxt")
+        if main:
+            paragraphs = main.select("p")
+            texts = []
+            for p in paragraphs:
+                t = p.get_text(strip=True)
+                # Берём только содержательные параграфы (не навигация, не кнопки)
+                if len(t) > 50:
+                    texts.append(t)
+            if texts:
+                return " ".join(texts[:3])[:3000]
+
+        logger.warning("⚠️ Описание продукта не найдено ни одним селектором")
         return ""
 
     def _extract_image_urls(self, soup: BeautifulSoup) -> List[str]:
-        """Извлекает URL изображений — .product-detail-slider_big img"""
+        """
+        Извлекает ТОЛЬКО изображения текущего продукта.
+
+        Исключает:
+        - SVG иконки
+        - Изображения из блоков "Похожие коллекции"
+        - Баннеры акций
+        - Иконки особенностей (маленькие картинки)
+        - Дубликаты
+        """
         image_urls = []
-        images = soup.select(".product-detail-slider_big .swiper-slide picture img")
-        if not images:
-            images = soup.select(".product-detail-slider_big img")
-        if not images:
-            images = soup.select(".product-detail-slider img")
-        if not images:
-            # Fallback: все img с admin.estetdveri.ru
-            images = soup.select('img[src*="admin.estetdveri.ru"]')
 
-        for img in images:
-            src = img.get("src") or img.get("data-src")
-            if src:
-                from urllib.parse import urljoin
-                image_urls.append(urljoin(self.base_url, src))
+        # Приоритетные селекторы — только галерея продукта
+        primary_selectors = [
+            ".product-detail-slider_big .swiper-slide picture img",
+            ".product-detail-slider_big .swiper-slide img",
+            ".product-detail-slider_big img",
+            ".product-slider__main img",
+            ".product-gallery img",
+        ]
 
-        logger.info(f"🖼️ Найдено {len(image_urls)} изображений")
+        for selector in primary_selectors:
+            images = soup.select(selector)
+            if images:
+                logger.debug(f"✅ Изображения найдены через: {selector} ({len(images)} шт)")
+                for img in images:
+                    src = img.get("src") or img.get("data-src") or img.get("data-lazy-src")
+                    if src and self._is_valid_product_image(src):
+                        full_url = urljoin(self.base_url, src)
+                        if full_url not in image_urls:
+                            image_urls.append(full_url)
+                break  # Нашли основную галерею — дальше не ищем
+
+        # Fallback только если основные селекторы дали 0 результатов
+        if not image_urls:
+            logger.warning("⚠️ Основные селекторы галереи не дали результатов, используем fallback")
+            # Ищем только на admin.estetdveri.ru — это изображения контента
+            for img in soup.select('img[src*="admin.estetdveri.ru"]'):
+                src = img.get("src") or img.get("data-src")
+                if src and self._is_valid_product_image(src):
+                    full_url = urljoin(self.base_url, src)
+                    if full_url not in image_urls:
+                        image_urls.append(full_url)
+
+        logger.info(f"🖼️ Найдено {len(image_urls)} изображений продукта")
         return image_urls
+
+    def _is_valid_product_image(self, url: str) -> bool:
+        """
+        Проверяет что URL — это реальное изображение продукта.
+
+        Returns:
+            bool: True если изображение валидно
+        """
+        if not url:
+            return False
+
+        # Исключаем SVG (иконки)
+        if url.lower().endswith(".svg"):
+            return False
+
+        # Исключаем data:image (base64 inline)
+        if url.startswith("data:"):
+            return False
+
+        # Исключаем иконки маленького размера по паттернам в URL
+        small_size_patterns = ["_80_80", "_40_40", "_24_24", "_32_32", "_16_16"]
+        if any(p in url for p in small_size_patterns):
+            return False
+
+        # Оставляем только реальные форматы изображений
+        valid_extensions = [".jpg", ".jpeg", ".png", ".webp", ".gif"]
+        url_lower = url.lower().split("?")[0]  # Убираем query params
+        if not any(url_lower.endswith(ext) for ext in valid_extensions):
+            # Если нет расширения — пропускаем
+            return False
+
+        return True
 
     def _extract_sizes(self, soup: BeautifulSoup) -> List[str]:
         """Извлекает размеры (высота/ширина) из свойств"""
@@ -302,16 +392,154 @@ class Scraper:
         return sizes
 
     def _extract_special_features(self, soup: BeautifulSoup) -> List[str]:
-        """Извлекает особенности из свойств"""
+        """
+        Извлекает ТОЛЬКО особенности продукта.
+        НЕ включает размеры (высота/ширина/толщина) — они в available_sizes.
+        """
         features = []
+
+        # Размерные свойства — исключаем
+        size_keywords = ["высота", "ширина", "толщина", "глубина", "длина", "размер"]
+
         for prop_block in soup.select(".property"):
             name_elem = prop_block.select_one(".property-name")
-            if name_elem:
-                name = name_elem.get_text(strip=True)
-                # Собираем все возможные значения
-                items = prop_block.select(".property-items > *")
+            if not name_elem:
+                continue
+
+            name = name_elem.get_text(strip=True).lower()
+
+            # Пропускаем размерные свойства
+            if any(kw in name for kw in size_keywords):
+                continue
+
+            items = prop_block.select(".property-items > *, .property-item span")
+            for item in items:
+                val = item.get_text(strip=True)
+                if val:
+                    feature_text = f"{name_elem.get_text(strip=True)}: {val}"
+                    if feature_text not in features:
+                        features.append(feature_text)
+
+        # Дополнительно — блок особенностей коллекции на странице продукта
+        collection_features = soup.select(".product-features__item, .door-features__item")
+        for item in collection_features:
+            text = item.get_text(strip=True)
+            if text and text not in features:
+                features.append(text)
+
+        return features[:15]
+
+    def parse_collection_info(self, html: str) -> Dict:
+        """
+        Извлекает информацию о КОЛЛЕКЦИИ со страницы коллекции.
+        (Не о модели, а о всей коллекции — название, описание, особенности)
+
+        Returns:
+            Dict: {
+                "name": str,
+                "slug": str,
+                "description": str,
+                "features": List[str],
+                "main_image_url": str
+            }
+        """
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Название коллекции из h1
+        name = ""
+        h1 = soup.select_one("h1[itemprop='name'], h1")
+        if h1:
+            name = h1.get_text(strip=True)
+
+        # Slug из названия
+        slug = self._name_to_slug(name)
+
+        # Описание коллекции — несколько вариантов селекторов
+        description = ""
+        desc_selectors = [
+            ".collection-description__text",
+            ".collection-about__text",
+            ".first-collection__text",
+            ".collection__description",
+            ".collection-info__text",
+            ".about-collection",
+        ]
+        for sel in desc_selectors:
+            elem = soup.select_one(sel)
+            if elem:
+                import re
+                text = elem.get_text(separator=" ", strip=True)
+                text = re.sub(r"\s+", " ", text).strip()
+                if len(text) > 20:
+                    description = text[:3000]
+                    break
+
+        # Особенности коллекции
+        features = []
+        feature_selectors = [
+            ".collection-features__item",
+            ".features-list__item",
+            ".collection-advantages__item",
+            ".advantages__item",
+        ]
+        for sel in feature_selectors:
+            items = soup.select(sel)
+            if items:
                 for item in items:
-                    val = item.get_text(strip=True)
-                    if val and val not in features:
-                        features.append(f"{name}: {val}")
-        return features[:10]  # Ограничиваем
+                    text = item.get_text(strip=True)
+                    if text and text not in features:
+                        features.append(text)
+                break
+
+        # Главное изображение коллекции
+        main_image_url = ""
+        img_selectors = [
+            ".collection-hero img",
+            ".collection-banner img",
+            ".first-collection img",
+            ".collection__image img",
+        ]
+        for sel in img_selectors:
+            img = soup.select_one(sel)
+            if img:
+                src = img.get("src") or img.get("data-src")
+                if src:
+                    from urllib.parse import urljoin
+                    main_image_url = urljoin(self.base_url, src)
+                    break
+
+        logger.info(
+            f"📚 Спаршена коллекция: '{name}', "
+            f"описание: {len(description)} симв., "
+            f"особенности: {len(features)} шт."
+        )
+
+        return {
+            "name": name,
+            "slug": slug,
+            "description": description,
+            "features": features,
+            "main_image_url": main_image_url,
+        }
+
+    def _name_to_slug(self, name: str) -> str:
+        """Конвертирует название в URL-slug"""
+        import re
+
+        # Транслитерация кириллицы
+        translit_map = {
+            'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+            'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+            'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+            'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+            'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+        }
+        slug = name.lower()
+        result = ""
+        for char in slug:
+            result += translit_map.get(char, char)
+
+        result = re.sub(r"[^\w\s-]", "", result)
+        result = re.sub(r"[\s_]+", "-", result)
+        result = result.strip("-")
+        return result

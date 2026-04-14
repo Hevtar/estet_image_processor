@@ -26,47 +26,99 @@ class Exporter:
     async def export_collection(
         self,
         session: AsyncSession,
-        name: str,
-        slug: str,
-        description: str = "",
-        url: str = "",
-        image_url: str = ""
+        collection_data: Dict,
     ) -> Collection:
         """
         Экспортировать коллекцию.
 
         Args:
             session: DB сессия
-            name: Название коллекции
-            slug: Slug коллекции
-            description: Описание
-            url: URL коллекции
-            image_url: URL изображения
+            collection_data: Словарь с данными коллекции:
+                {
+                    "name": str,
+                    "slug": str,
+                    "description": str,
+                    "url": str,
+                    "image_url": str,
+                    "features": List[str]  (опционально)
+                }
 
         Returns:
             Collection: Созданная или найденная коллекция
         """
+        slug = collection_data.get("slug") or self._generate_slug(
+            collection_data.get("name", "")
+        )
+
+        if not slug:
+            raise ValueError("Невозможно создать коллекцию без slug/name")
+
         # Проверяем существование
-        result = await session.execute(select(Collection).where(Collection.slug == slug))
+        result = await session.execute(
+            select(Collection).where(Collection.slug == slug)
+        )
         existing = result.scalar_one_or_none()
 
         if existing:
-            logger.info(f"♻️ Коллекция уже существует: {slug}")
+            # Обновляем описание если появилось новое
+            if collection_data.get("description") and not existing.description:
+                existing.description = collection_data["description"]
+                logger.info(f"♻️ Обновлено описание коллекции: {slug}")
+            else:
+                logger.info(f"♻️ Коллекция уже существует: {slug}")
             return existing
 
         # Создаем новую
         collection = Collection(
-            name=name,
+            name=collection_data.get("name", ""),
             slug=slug,
-            description=description,
-            url=url,
-            image_url=image_url,
+            description=collection_data.get("description", ""),
+            url=collection_data.get("url", ""),
+            image_url=collection_data.get("image_url", ""),
         )
         session.add(collection)
         await session.flush()
 
-        logger.info(f"✅ Создана коллекция: {name}")
+        logger.info(f"✅ Создана коллекция: {collection_data.get('name')}")
         return collection
+
+    async def export_product_images(
+        self,
+        session: AsyncSession,
+        product_id: UUID,
+        image_paths: List[str],
+        image_urls: Optional[List[str]] = None,
+    ) -> List[ProductImage]:
+        """
+        Пакетное сохранение изображений продукта.
+
+        Args:
+            session: DB сессия
+            product_id: ID продукта
+            image_paths: Локальные пути к файлам
+            image_urls: Оригинальные URL (опционально)
+
+        Returns:
+            List[ProductImage]: Список созданных записей
+        """
+        saved = []
+
+        for i, local_path in enumerate(image_paths):
+            image_data = {
+                "local_path": local_path,
+                "url": image_urls[i] if image_urls and i < len(image_urls) else "",
+                "is_primary": (i == 0),  # Первое изображение — главное
+                "order": i,
+            }
+
+            try:
+                img = await self.export_product_image(session, product_id, image_data)
+                saved.append(img)
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось сохранить изображение {local_path}: {e}")
+
+        logger.info(f"🖼️ Сохранено {len(saved)} изображений для продукта {product_id}")
+        return saved
 
     async def export_product(
         self,

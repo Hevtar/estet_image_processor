@@ -40,65 +40,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def _parse_product(
-    crawler, scraper, product_url, url_discovery,
-    validator, exporter, db, embedding_gen,
-    description_gen, skip_images, skip_ai, stats, storage
-):
-    """Парсинг одного продукта"""
-    try:
-        product_html = crawler.get_page(product_url)
-        product_data = scraper.parse_product_page(product_html)
-        product_data["product_url"] = product_url
-        product_data["slug"] = product_url.rstrip("/").split("/")[-1]
-
-        # Скачивание изображений
-        if not skip_images and product_data.get("image_urls"):
-            downloader = ImageDownloader()
-            results = await downloader.download_images(
-                product_data["image_urls"],
-                subdir="products"
-            )
-            downloaded = [p for p in results.values() if p]
-            stats["images_downloaded"] += len(downloaded)
-
-            if downloaded:
-                product_data["main_image_url"] = downloaded[0]
-
-        # AI анализ
-        if not skip_ai:
-            ai_description = await description_gen.generate_from_text(product_data)
-            if ai_description:
-                product_data["ai_semantic_description"] = ai_description.get(
-                    "full_description", ""
-                )
-                stats["ai_descriptions_generated"] += 1
-
-        # Валидация и экспорт
-        validation_result = validator.validate_product(product_data)
-        if validation_result[0]:
-            cleaned = validator.clean_product(product_data)
-            async with db.session() as session:
-                product = await exporter.export_product(session, cleaned)
-                await session.commit()
-
-                # Генерация embedding
-                if not skip_ai and product:
-                    embedding = await embedding_gen.generate_for_product(cleaned)
-                    async with db.session() as emb_session:
-                        await exporter.export_embedding(
-                            emb_session, product.id, embedding
-                        )
-                        await emb_session.commit()
-
-            stats["products_processed"] += 1
-            url_discovery.mark_visited(product_url)
-
-    except Exception as e:
-        logger.error(f"❌ Ошибка парсинга продукта {product_url}: {e}")
-        stats["errors"] += 1
-
-
 async def run_full_parse(skip_images: bool = False, skip_ai: bool = False):
     """
     Запустить полный парсинг каталога.
@@ -234,12 +175,25 @@ async def run_full_parse(skip_images: bool = False, skip_ai: bool = False):
         await db.close()
 
 
-async def run_single_collection(url: str, skip_images: bool = False, skip_ai: bool = False):
-    """Парсинг одной коллекции"""
+async def run_single_collection(
+    url: str,
+    skip_images: bool = False,
+    skip_ai: bool = False,
+):
+    """
+    Парсинг одной коллекции дверей.
+
+    Правильный порядок:
+    1. Загрузить страницу коллекции
+    2. Извлечь данные КОЛЛЕКЦИИ и сохранить в таблицу collections
+    3. Получить URL только моделей ЭТОЙ коллекции (с фильтрацией)
+    4. Для каждой модели: зайти в карточку, спарсить, сохранить
+    5. Для каждого продукта: скачать изображения, сгенерировать AI описание, сохранить
+    """
     logger.info(f"🚀 Запуск парсинга коллекции: {url}")
 
     stats = {
-        "collections_found": 1,
+        "collection_saved": False,
         "products_found": 0,
         "products_processed": 0,
         "images_downloaded": 0,
@@ -248,48 +202,255 @@ async def run_single_collection(url: str, skip_images: bool = False, skip_ai: bo
         "errors": 0,
     }
 
+    # Инициализация зависимостей
     db = Database(settings.DATABASE_URL)
     await db.create_tables()
-    gemini = GeminiClient(api_key=settings.POLZA_API_KEY)
+
+    gemini = GeminiClient(
+        api_key=settings.POLZA_API_KEY,
+        api_url=settings.POLZA_API_URL,
+        model=settings.GEMINI_MODEL,
+    )
     description_gen = DescriptionGenerator(gemini)
     embedding_gen = EmbeddingGenerator(gemini)
     validator = DataValidator()
     exporter = Exporter(db)
     storage = StorageManager()
     url_discovery = URLDiscovery(settings.ESTET_BASE_URL)
+    scraper = Scraper()
 
     try:
         with Crawler(headless=settings.PARSER_HEADLESS_BROWSER) as crawler:
-            # Используем новый метод для SPA
+
+            # ══════════════════════════════════════
+            # ШАГ 1: Парсим данные КОЛЛЕКЦИИ
+            # ══════════════════════════════════════
+            logger.info(f"📖 Загрузка страницы коллекции: {url}")
+            collection_html = crawler.get_page(url)
+
+            collection_data = scraper.parse_collection_info(collection_html)
+            collection_data["url"] = url
+
+            # Сохраняем коллекцию в БД
+            async with db.session() as session:
+                collection = await exporter.export_collection(session, collection_data)
+                await session.commit()
+                collection_id = collection.id
+
+            stats["collection_saved"] = True
+            logger.info(
+                f"✅ Коллекция сохранена: '{collection_data.get('name')}' "
+                f"(id={collection_id})"
+            )
+
+            # ══════════════════════════════════════
+            # ШАГ 2: Получаем URL моделей коллекции
+            # ══════════════════════════════════════
             product_urls = crawler.get_product_urls_from_catalog(url)
             stats["products_found"] = len(product_urls)
 
-            logger.info(f"📦 Найдено {len(product_urls)} продуктов/моделей")
+            logger.info(f"📦 Найдено {len(product_urls)} моделей для парсинга")
 
-            scraper = Scraper()
+            if not product_urls:
+                logger.error(
+                    f"❌ Не найдено ни одной модели на странице {url}. "
+                    f"Проверьте HTML структуру страницы."
+                )
+                return stats
 
+            # ══════════════════════════════════════
+            # ШАГ 3: Парсим каждую модель
+            # ══════════════════════════════════════
             for product_url in product_urls:
+
                 if url_discovery.is_visited(product_url):
+                    logger.debug(f"⏭️ Уже обработан: {product_url}")
                     continue
 
-                logger.info(f"🔍 Парсинг: {product_url}")
-                await _parse_product(
-                    crawler, scraper, product_url, url_discovery,
-                    validator, exporter, db, embedding_gen,
-                    description_gen, skip_images, skip_ai, stats, storage
+                logger.info(f"🔍 Парсинг модели: {product_url}")
+
+                await _parse_single_product(
+                    crawler=crawler,
+                    scraper=scraper,
+                    product_url=product_url,
+                    collection_id=collection_id,
+                    url_discovery=url_discovery,
+                    validator=validator,
+                    exporter=exporter,
+                    db=db,
+                    embedding_gen=embedding_gen,
+                    description_gen=description_gen,
+                    skip_images=skip_images,
+                    skip_ai=skip_ai,
+                    stats=stats,
+                    storage=storage,
                 )
 
-        elapsed = (datetime.utcnow() - datetime.utcnow()).total_seconds()
-        logger.info("=" * 50)
-        logger.info("✅ Парсинг коллекции завершен!")
-        logger.info(f"📊 Статистика: {stats}")
-        logger.info("=" * 50)
-
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}")
+        logger.error(f"❌ Критическая ошибка: {e}", exc_info=True)
         stats["errors"] += 1
     finally:
         await db.close()
+
+    # Итоговая статистика
+    logger.info("=" * 60)
+    logger.info("📊 ИТОГИ ПАРСИНГА:")
+    logger.info(f"   Коллекция сохранена: {stats['collection_saved']}")
+    logger.info(f"   Найдено моделей:     {stats['products_found']}")
+    logger.info(f"   Обработано моделей:  {stats['products_processed']}")
+    logger.info(f"   Скачано изображений: {stats['images_downloaded']}")
+    logger.info(f"   AI описаний:         {stats['ai_descriptions_generated']}")
+    logger.info(f"   Embeddings:          {stats['embeddings_generated']}")
+    logger.info(f"   Ошибок:              {stats['errors']}")
+    logger.info("=" * 60)
+
+    return stats
+
+
+async def _parse_single_product(
+    crawler,
+    scraper,
+    product_url: str,
+    collection_id,
+    url_discovery,
+    validator,
+    exporter,
+    db,
+    embedding_gen,
+    description_gen,
+    skip_images: bool,
+    skip_ai: bool,
+    stats: dict,
+    storage,
+):
+    """
+    Парсинг одной карточки модели двери.
+
+    Порядок:
+    1. Загрузить HTML карточки модели
+    2. Извлечь все данные
+    3. Скачать изображения (только продукта)
+    4. Сгенерировать AI описание (если есть данные)
+    5. Сохранить в products + product_images + embeddings
+    """
+    try:
+        # ── 1. Парсинг HTML карточки ──────────────────────────
+        product_html = crawler.get_page(product_url)
+        product_data = scraper.parse_product_page(product_html)
+        product_data["product_url"] = product_url
+
+        # Маппинг поля description → original_description
+        if "description" in product_data and "original_description" not in product_data:
+            product_data["original_description"] = product_data.pop("description")
+
+        logger.info(
+            f"   Название: {product_data.get('name')}, "
+            f"Описание: {len(product_data.get('original_description', ''))} симв., "
+            f"Изображений в HTML: {len(product_data.get('image_urls', []))}"
+        )
+
+        # ── 2. Скачивание изображений ─────────────────────────
+        downloaded_paths = []
+        original_image_urls = product_data.get("image_urls", [])
+
+        if not skip_images and original_image_urls:
+            downloader = ImageDownloader()
+            results = await downloader.download_images(
+                original_image_urls,
+                subdir="products"
+            )
+            # results: Dict[url → local_path or None]
+            downloaded_paths = [p for p in results.values() if p]
+            stats["images_downloaded"] += len(downloaded_paths)
+
+            if downloaded_paths:
+                product_data["main_image_url"] = downloaded_paths[0]
+                logger.info(f"   📥 Скачано {len(downloaded_paths)} изображений")
+
+        # ── 3. AI генерация описания ──────────────────────────
+        if not skip_ai:
+            has_text = bool(product_data.get("original_description", "").strip())
+            has_image = bool(downloaded_paths)
+
+            if has_text or has_image:
+                try:
+                    # Предпочитаем анализ изображения если оно есть
+                    if has_image:
+                        image_bytes = Path(downloaded_paths[0]).read_bytes()
+                        if image_bytes:
+                            ai_result = await description_gen.generate_from_image(
+                                image_bytes=image_bytes,
+                                product_data=product_data,
+                            )
+                        else:
+                            ai_result = await description_gen.generate_from_text(product_data)
+                    else:
+                        ai_result = await description_gen.generate_from_text(product_data)
+
+                    if ai_result:
+                        product_data["ai_semantic_description"] = ai_result.get(
+                            "full_description", ""
+                        )
+                        stats["ai_descriptions_generated"] += 1
+                        logger.info(f"   ✨ AI описание сгенерировано")
+
+                except Exception as ai_err:
+                    logger.warning(f"   ⚠️ Ошибка AI генерации: {ai_err}")
+            else:
+                logger.warning(
+                    f"   ⚠️ Нет данных для AI анализа продукта {product_url}. "
+                    f"Пропускаем генерацию (нет ни описания, ни изображения)."
+                )
+
+        # ── 4. Валидация ──────────────────────────────────────
+        is_valid, errors = validator.validate_product(product_data)
+
+        if not is_valid:
+            logger.warning(f"   ❌ Валидация не пройдена: {errors}")
+            stats["errors"] += 1
+            return
+
+        cleaned = validator.clean_product(product_data)
+
+        # ── 5. Сохранение в БД ────────────────────────────────
+        async with db.session() as session:
+            product = await exporter.export_product(session, cleaned)
+            await session.commit()
+
+            if not product:
+                logger.error(f"   ❌ Не удалось сохранить продукт")
+                stats["errors"] += 1
+                return
+
+            logger.info(f"   ✅ Продукт сохранён: {product.name}")
+
+            # Сохраняем изображения
+            if downloaded_paths:
+                async with db.session() as img_session:
+                    await exporter.export_product_images(
+                        img_session,
+                        product.id,
+                        downloaded_paths,
+                        image_urls=original_image_urls[:len(downloaded_paths)],
+                    )
+                    await img_session.commit()
+
+            # Генерация embedding
+            if not skip_ai:
+                embedding = await embedding_gen.generate_for_product(cleaned)
+                async with db.session() as emb_session:
+                    await exporter.export_embedding(
+                        emb_session, product.id, embedding
+                    )
+                    await emb_session.commit()
+                stats["embeddings_generated"] += 1
+
+        stats["products_processed"] += 1
+        url_discovery.mark_visited(product_url)
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка парсинга продукта {product_url}: {e}", exc_info=True)
+        stats["errors"] += 1
 
 
 async def run_single_product(url: str, skip_ai: bool = False):

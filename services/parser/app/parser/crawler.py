@@ -162,26 +162,60 @@ class Crawler:
 
     def get_product_urls_from_catalog(self, catalog_url: str) -> List[str]:
         """
-        Получить все URL продуктов со страницы каталога.
-        Ждёт рендеринга SPA и собирает ссылки на модели.
+        Получить URL ТОЛЬКО моделей текущей коллекции.
+
+        Правило фильтрации:
+        - URL коллекции: /catalog/mezhkomnatnye-dveri/mio/
+        - URL модели:    /catalog/mezhkomnatnye-dveri/mio/mio-1/  ← берём
+        - URL другой:    /catalog/mezhkomnatnye-dveri/novella/    ← пропускаем
+        - URL раздела:   /catalog/mezhkomnatnye-dveri/collections/ ← пропускаем
         """
+        from urllib.parse import urlparse
+
         html = self.get_page(catalog_url)
 
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html, "html.parser")
+
+        # Нормализуем путь коллекции для сравнения
+        collection_path = urlparse(catalog_url).path.rstrip("/")
+
         product_urls = []
 
-        # Стратегия: собираем ВСЕ уникальные ссылки, которые похожи на URL модели
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            parts = [p for p in href.split("/") if p]
-            # /catalog/category/model-name/ — минимум 3 сегмента
-            if len(parts) >= 3 and parts[0] == "catalog":
-                full_url = urljoin(self.base_url, href)
-                if full_url not in product_urls:
-                    product_urls.append(full_url)
 
-        logger.info(f"🔗 Найдено {len(product_urls)} URL со страницы {catalog_url}")
+            # Работаем только с относительными и абсолютными путями сайта
+            parsed = urlparse(href)
+
+            # Если абсолютный URL — берём только path
+            if parsed.netloc and parsed.netloc not in catalog_url:
+                continue  # Внешняя ссылка — пропускаем
+
+            path = parsed.path.rstrip("/")
+
+            # КЛЮЧЕВОЕ ПРАВИЛО:
+            # Путь модели должен начинаться с пути коллекции
+            # И быть ровно на ОДИН уровень глубже
+            if not path.startswith(collection_path + "/"):
+                continue
+
+            remaining = path[len(collection_path):].strip("/")
+
+            # Ровно один сегмент без вложений
+            if "/" in remaining or not remaining:
+                continue
+
+            full_url = urljoin(self.base_url, path + "/")
+
+            if full_url not in product_urls:
+                product_urls.append(full_url)
+                logger.debug(f"✅ Модель добавлена: {full_url}")
+
+        logger.info(
+            f"🔗 Найдено {len(product_urls)} моделей коллекции "
+            f"(путь коллекции: {collection_path})"
+        )
         return product_urls
 
     def __enter__(self):
