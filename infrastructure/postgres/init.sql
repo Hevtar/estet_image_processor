@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS product_embeddings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id UUID REFERENCES products(id) ON DELETE CASCADE,
 
-    embedding vector(768) NOT NULL,
+    embedding vector(3072) NOT NULL,
     embedding_type VARCHAR(50) DEFAULT 'semantic',
     model_version VARCHAR(100),
     created_at TIMESTAMP DEFAULT NOW()

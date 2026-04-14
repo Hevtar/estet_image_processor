@@ -21,8 +21,8 @@ class ProductEmbedding(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     product_id = Column(PGUUID(as_uuid=True), ForeignKey("products.id", ondelete="CASCADE"))
 
-    # Вектор (768 dimensions для Gemini embeddings)
-    embedding = Column(Vector(768), nullable=False)
+    # Вектор (3072 dimensions для gemini-embedding-001)
+    embedding = Column(Vector(3072), nullable=False)
 
     embedding_type = Column(String(50), default="semantic")
     model_version = Column(String(100))
