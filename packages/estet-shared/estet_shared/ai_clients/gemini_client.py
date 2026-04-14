@@ -102,24 +102,46 @@ class GeminiClient:
 
     async def generate_embedding(
         self,
-        text: str
+        text: str,
+        model: str = "google/gemini-embedding-001"
     ) -> List[float]:
         """
-        Генерирует embedding для текста.
-
-        Note: Polza.ai может не поддерживать embeddings endpoint.
-        В таком случае используем обходной путь через chat completion.
+        Генерирует embedding для текста через Polza.ai embeddings API.
 
         Args:
             text: Текст для embedding
+            model: Модель для embeddings
 
         Returns:
-            List[float]: Вектор embedding
+            List[float]: Вектор embedding (768 dimensions для gemini-embedding-001)
         """
-        # TODO: Проверить поддержку embeddings API в Polza
-        # Временное решение: генерируем через анализ
-        logger.warning("Embeddings через Gemini API не реализованы, используем заглушку")
-        return [0.0] * 768  # Заглушка
+        try:
+            payload = {
+                "model": model,
+                "input": text,
+            }
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    f"{self.api_url}/embeddings",
+                    json=payload,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                # Polza возвращает формат: {"data": [{"embedding": [...]}]}
+                embedding = data["data"][0]["embedding"]
+                logger.debug(f"✅ Embedding сгенерирован: {len(embedding)} dimensions")
+                return embedding
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка генерации embedding: {e}")
+            # Fallback — заглушка
+            return [0.0] * 768
 
     async def _call_api_with_retry(self, payload: Dict) -> Dict:
         """Вызов API с retry логикой"""

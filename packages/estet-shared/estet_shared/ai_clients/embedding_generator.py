@@ -48,6 +48,6 @@ class EmbeddingGenerator:
 
         if not description:
             logger.warning("Пустое описание для генерации embedding")
-            return [0.0] * 768
+            return await self.client.generate_embedding(product_data.get('name', 'дверь'))
 
         return await self.generate_from_text(description)
