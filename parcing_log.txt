@@ -1,0 +1,62 @@
+$9::VARCHAR, $10::VARCHAR, $11::VARCHAR, $12::TEXT[], $13::VARCHAR, $14::VARCHAR, $15::NUMERIC(10, 2), $16::TEXT[], $17::TIMESTAMP WITHOUT TIME ZONE, $18::TIMESTAMP WITHOUT TIME ZONE, $19::TIMESTAMP WITHOUT TIME ZONE)]
+[parameters: (UUID('ce7216a8-b187-4b27-a39d-0b8486fe298a'), None, 'Скрытая дверь IFL U5', 'скрытая-дверь-ifl-u5', 'Скрытые двери', '', '', 'современный', 'unknown', 'Эмаль', 'эмаль', ['Высота:: 3000 мм', 'Ширина:: 900 мм', 'Толщина:: 58 мм'], 'https://moscow.estetdveri.ru/catalog/skrytye-dveri/influence-doors/mezhkomnatnaya-dver-ifl-u5-v-skrytom-korobe/', 'services/parser/data/images/products/56dbe306dde3.webp', None, ['высота:: 3000 мм', 'ширина:: 900 мм', 'толщина:: 58 мм'], datetime.datetime(2026, 4, 14, 9, 8, 57, 4732), datetime.datetime(2026, 4, 14, 9, 8, 57, 4735), datetime.datetime(2026, 4, 14, 9, 8, 57, 3988))]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2026-04-14 12:08:57,008 - __main__ - INFO - 🔍 Парсинг: https://moscow.estetdveri.ru/catalog/skrytye-dveri/influence-doors/skrytaya-dver-ifl-art9/
+2026-04-14 12:08:57,008 - app.parser.crawler - INFO - 📄 Загрузка: https://moscow.estetdveri.ru/catalog/skrytye-dveri/influence-doors/skrytaya-dver-ifl-art9/
+2026-04-14 12:09:04,965 - app.parser.scraper - INFO - 🖼️ Найдено 1 изображений
+2026-04-14 12:09:04,983 - app.parser.scraper - INFO - 📦 Спаршен продукт: Скрытая дверь IFL ART9
+2026-04-14 12:09:05,048 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/iblock/798/cg24bys0596qvautqhko93dec1r21yum.webp -> services/parser/data/images/products/7fbd052b549d.webp
+2026-04-14 12:09:05,163 - httpx - INFO - HTTP Request: POST https://api.polza.ai/v1/chat/completions "HTTP/1.1 400 Bad Request"
+2026-04-14 12:09:05,164 - estet_shared.ai_clients.gemini_client - ERROR - ❌ Ошибка API на попытке 1: Client error '400 Bad Request' for url 'https://api.polza.ai/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+2026-04-14 12:09:06,258 - httpx - INFO - HTTP Request: POST https://api.polza.ai/v1/chat/completions "HTTP/1.1 400 Bad Request"
+2026-04-14 12:09:06,259 - estet_shared.ai_clients.gemini_client - ERROR - ❌ Ошибка API на попытке 2: Client error '400 Bad Request' for url 'https://api.polza.ai/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+2026-04-14 12:09:08,353 - httpx - INFO - HTTP Request: POST https://api.polza.ai/v1/chat/completions "HTTP/1.1 400 Bad Request"
+2026-04-14 12:09:08,354 - estet_shared.ai_clients.gemini_client - ERROR - ❌ Ошибка API на попытке 3: Client error '400 Bad Request' for url 'https://api.polza.ai/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+2026-04-14 12:09:08,354 - app.analyzer.description_generator - ERROR - ❌ Ошибка генерации описания: Client error '400 Bad Request' for url 'https://api.polza.ai/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+2026-04-14 12:09:08,355 - app.pipeline.validator - WARNING - ⚠️ Неизвестная категория: Скрытые двери
+2026-04-14 12:09:08,406 - estet_shared.database.connection - ERROR - Database error: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.CheckViolationError'>: new row for relation "products" violates check constraint "valid_category"
+DETAIL:  Failing row contains (9f73002c-8882-4bb0-8fd6-b49fa7d5f93a, null, Скрытая дверь IFL ART9, скрытая-дверь-ifl-art9, Скрытые двери, , , современный, unknown, Эмаль, эмаль, {"Высота:: 2500 мм","Ширина:: 900 мм","Толщ..., https://moscow.estetdveri.ru/catalog/skrytye-dveri/influence-doo..., services/parser/data/images/products/7fbd052b549d.webp, null, {"высота:: 2500 мм","ширина:: 900 мм","толщ..., 2026-04-14 09:09:08.402314, 2026-04-14 09:09:08.402317, 2026-04-14 09:09:08.401711).
+[SQL: INSERT INTO products (id, collection_id, name, slug, category, original_description, ai_semantic_description, style, color_family, material, finish_type, special_features, product_url, main_image_url, price, available_sizes, created_at, updated_at, last_scraped_at) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::VARCHAR, $7::VARCHAR, $8::VARCHAR, $9::VARCHAR, $10::VARCHAR, $11::VARCHAR, $12::TEXT[], $13::VARCHAR, $14::VARCHAR, $15::NUMERIC(10, 2), $16::TEXT[], $17::TIMESTAMP WITHOUT TIME ZONE, $18::TIMESTAMP WITHOUT TIME ZONE, $19::TIMESTAMP WITHOUT TIME ZONE)]
+[parameters: (UUID('9f73002c-8882-4bb0-8fd6-b49fa7d5f93a'), None, 'Скрытая дверь IFL ART9', 'скрытая-дверь-ifl-art9', 'Скрытые двери', '', '', 'современный', 'unknown', 'Эмаль', 'эмаль', ['Высота:: 2500 мм', 'Ширина:: 900 мм', 'Толщина:: 58 мм'], 'https://moscow.estetdveri.ru/catalog/skrytye-dveri/influence-doors/skrytaya-dver-ifl-art9/', 'services/parser/data/images/products/7fbd052b549d.webp', None, ['высота:: 2500 мм', 'ширина:: 900 мм', 'толщина:: 58 мм'], datetime.datetime(2026, 4, 14, 9, 9, 8, 402314), datetime.datetime(2026, 4, 14, 9, 9, 8, 402317), datetime.datetime(2026, 4, 14, 9, 9, 8, 401711))]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2026-04-14 12:09:08,406 - __main__ - ERROR - ❌ Ошибка парсинга продукта https://moscow.estetdveri.ru/catalog/skrytye-dveri/influence-doors/skrytaya-dver-ifl-art9/: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.CheckViolationError'>: new row for relation "products" violates check constraint "valid_category"
+DETAIL:  Failing row contains (9f73002c-8882-4bb0-8fd6-b49fa7d5f93a, null, Скрытая дверь IFL ART9, скрытая-дверь-ifl-art9, Скрытые двери, , , современный, unknown, Эмаль, эмаль, {"Высота:: 2500 мм","Ширина:: 900 мм","Толщ..., https://moscow.estetdveri.ru/catalog/skrytye-dveri/influence-doo..., services/parser/data/images/products/7fbd052b549d.webp, null, {"высота:: 2500 мм","ширина:: 900 мм","толщ..., 2026-04-14 09:09:08.402314, 2026-04-14 09:09:08.402317, 2026-04-14 09:09:08.401711).
+[SQL: INSERT INTO products (id, collection_id, name, slug, category, original_description, ai_semantic_description, style, color_family, material, finish_type, special_features, product_url, main_image_url, price, available_sizes, created_at, updated_at, last_scraped_at) VALUES ($1::UUID, $2::UUID, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::VARCHAR, $7::VARCHAR, $8::VARCHAR, $9::VARCHAR, $10::VARCHAR, $11::VARCHAR, $12::TEXT[], $13::VARCHAR, $14::VARCHAR, $15::NUMERIC(10, 2), $16::TEXT[], $17::TIMESTAMP WITHOUT TIME ZONE, $18::TIMESTAMP WITHOUT TIME ZONE, $19::TIMESTAMP WITHOUT TIME ZONE)]
+[parameters: (UUID('9f73002c-8882-4bb0-8fd6-b49fa7d5f93a'), None, 'Скрытая дверь IFL ART9', 'скрытая-дверь-ifl-art9', 'Скрытые двери', '', '', 'современный', 'unknown', 'Эмаль', 'эмаль', ['Высота:: 2500 мм', 'Ширина:: 900 мм', 'Толщина:: 58 мм'], 'https://moscow.estetdveri.ru/catalog/skrytye-dveri/influence-doors/skrytaya-dver-ifl-art9/', 'services/parser/data/images/products/7fbd052b549d.webp', None, ['высота:: 2500 мм', 'ширина:: 900 мм', 'толщина:: 58 мм'], datetime.datetime(2026, 4, 14, 9, 9, 8, 402314), datetime.datetime(2026, 4, 14, 9, 9, 8, 402317), datetime.datetime(2026, 4, 14, 9, 9, 8, 401711))]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2026-04-14 12:09:08,406 - __main__ - INFO - 🔍 Парсинг: https://moscow.estetdveri.ru/catalog/korpusnaya-mebel/zerkala/
+2026-04-14 12:09:08,406 - app.parser.crawler - INFO - 📄 Загрузка: https://moscow.estetdveri.ru/catalog/korpusnaya-mebel/zerkala/
+2026-04-14 12:09:44,404 - app.parser.scraper - INFO - 🖼️ Найдено 9 изображений
+2026-04-14 12:09:44,413 - app.parser.scraper - INFO - 📦 Спаршен продукт: Зеркала
+2026-04-14 12:09:44,470 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/uf/3da/94zy0rsn2vunk76s98ludelbzy45gbir.webp -> services/parser/data/images/products/b84a6310e5cd.webp
+2026-04-14 12:09:44,475 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/uf/0b3/fp8jw60gs4bq68zp5b16bqgn2h03vstn.webp -> services/parser/data/images/products/17ebd649afcd.webp
+2026-04-14 12:09:44,482 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/iblock/7f3/di4b6bb59mmr0ipcfvxybg4wxn0vo40l.webp -> services/parser/data/images/products/3e6a2f4e6685.webp
+2026-04-14 12:09:44,484 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/uf/e39/1h8vrgzj70c4l5zdz63llz3bjkh6468n.webp -> services/parser/data/images/products/960774239322.webp
+2026-04-14 12:09:44,487 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/iblock/2a9/dhran6fvxclsa2tftv7b2ssh4zei3yj2.webp -> services/parser/data/images/products/99e58e32329b.webp
+2026-04-14 12:09:44,552 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/iblock/9a0/vqm2ld5l2amnp6ki1lccyosf8qzz3atr.webp -> services/parser/data/images/products/39de8b58f9a3.webp
+2026-04-14 12:09:44,554 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/iblock/0df/2010de6pv55o07glv032795xuro1jap0.webp -> services/parser/data/images/products/b6a8d23c21f5.webp
+2026-04-14 12:09:44,556 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/iblock/44a/y45ghby5if2cfuct648tny5oc2d2efjd.webp -> services/parser/data/images/products/c3588f3fe309.webp
+2026-04-14 12:09:44,570 - app.downloader.image_downloader - INFO - 📥 Скачано: https://admin.estetdveri.ru/upload/iblock/971/avzq9omnsyr00xade18habnmb39k0miw.webp -> services/parser/data/images/products/41c834f0565f.webp
+2026-04-14 12:09:44,677 - httpx - INFO - HTTP Request: POST https://api.polza.ai/v1/chat/completions "HTTP/1.1 400 Bad Request"
+2026-04-14 12:09:44,678 - estet_shared.ai_clients.gemini_client - ERROR - ❌ Ошибка API на попытке 1: Client error '400 Bad Request' for url 'https://api.polza.ai/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+2026-04-14 12:09:45,773 - httpx - INFO - HTTP Request: POST https://api.polza.ai/v1/chat/completions "HTTP/1.1 400 Bad Request"
+2026-04-14 12:09:45,774 - estet_shared.ai_clients.gemini_client - ERROR - ❌ Ошибка API на попытке 2: Client error '400 Bad Request' for url 'https://api.polza.ai/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+2026-04-14 12:09:47,875 - httpx - INFO - HTTP Request: POST https://api.polza.ai/v1/chat/completions "HTTP/1.1 400 Bad Request"
+2026-04-14 12:09:47,876 - estet_shared.ai_clients.gemini_client - ERROR - ❌ Ошибка API на попытке 3: Client error '400 Bad Request' for url 'https://api.polza.ai/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+2026-04-14 12:09:47,876 - app.analyzer.description_generator - ERROR - ❌ Ошибка генерации описания: Client error '400 Bad Request' for url 'https://api.polza.ai/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400
+2026-04-14 12:09:47,920 - app.pipeline.exporter - INFO - ✅ Создан продукт: Зеркала
+2026-04-14 12:09:47,923 - estet_shared.ai_clients.gemini_client - WARNING - Embeddings через Gemini API не реализованы, используем заглушку
+2026-04-14 12:09:48,127 - app.parser.crawler - INFO - 🛑 WebDriver остановлен
+2026-04-14 12:09:48,127 - __main__ - INFO - ==================================================
+2026-04-14 12:09:48,127 - __main__ - INFO - ✅ Парсинг коллекции завершен!
+2026-04-14 12:09:48,127 - __main__ - INFO - 📊 Статистика: {'collections_found': 1, 'products_found': 37, 'products_processed': 6, 'images_downloaded': 523, 'ai_descriptions_generated': 0, 'embeddings_generated': 0, 'errors': 31}
+2026-04-14 12:09:48,127 - __main__ - INFO - ==================================================
+(venv) hevtar@vm-postgres:~/estet_image_processor/services/parser$

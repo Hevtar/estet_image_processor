@@ -167,33 +167,52 @@ async def run_full_parse(skip_images: bool = False, skip_ai: bool = False):
                         logger.warning(f"⚠️ Не найдено моделей в {collection_url}")
                         continue
 
-                    logger.info(f"📦 Найдено {len(model_urls)} моделей/продуктов в {collection_url}")
+                    logger.info(f"📦 Найдено {len(model_urls)} URL на странице {collection_url}")
 
                     # Каждый URL модели может содержать конкретные продукты
                     for model_url in model_urls:
                         if url_discovery.is_visited(model_url):
                             continue
 
-                        # Если URL содержит достаточно сегментов — это уже продукт
+                        # Определяем тип URL по количеству сегментов после /catalog/
                         path_parts = [p for p in model_url.split("/") if p]
-                        catalog_idx = path_parts.index("catalog") if "catalog" in path_parts else -1
+                        try:
+                            catalog_idx = path_parts.index("catalog")
+                            segments_after_catalog = len(path_parts) - catalog_idx - 1
+                        except ValueError:
+                            continue
 
-                        if catalog_idx >= 0 and len(path_parts) - catalog_idx >= 4:
-                            # Это URL конкретного продукта: /catalog/category/model/product/
-                            logger.info(f"📦 Парсинг продукта: {model_url}")
-                            await _parse_product(
-                                crawler, scraper, model_url, url_discovery,
-                                validator, exporter, db, embedding_gen,
-                                description_gen, skip_images, skip_ai, stats, storage
-                            )
-                        else:
-                            # Это страница модели — парсим как страницу продукта
-                            logger.info(f"🔍 Парсинг модели: {model_url}")
-                            await _parse_product(
-                                crawler, scraper, model_url, url_discovery,
-                                validator, exporter, db, embedding_gen,
-                                description_gen, skip_images, skip_ai, stats, storage
-                            )
+                        # segments_after_catalog:
+                        # 2 = /catalog/category/          — раздел каталога (пропускаем)
+                        # 3 = /catalog/category/filter/   — фильтр (пропускаем)
+                        # 3 = /catalog/category/model/    — коллекция/модель (парсим как продукт)
+                        # 4 = /catalog/category/model/id/ — конкретный продукт (парсим)
+
+                        if segments_after_catalog <= 2:
+                            logger.debug(f"⏭️ Пропускаем раздел: {model_url}")
+                            continue
+
+                        if segments_after_catalog == 3:
+                            # Это может быть коллекция или фильтр
+                            # Проверяем по названию: фильтры содержат слова-фильтры
+                            last_segment = path_parts[-1].lower()
+                            filter_keywords = [
+                                'temnye', 'svetlye', 'belye', 'serye', 'korichnevye',
+                                'chornye', 'bezhennye', 'filter', 'style_', 'glass_',
+                                'otkryvaniye', 'type_', 'purpose', 'design_',
+                                'collection', 'collections'
+                            ]
+                            if any(kw in last_segment for kw in filter_keywords):
+                                logger.debug(f"⏭️ Пропускаем фильтр: {model_url}")
+                                continue
+
+                        # Парсим как продукт
+                        logger.info(f"📦 Парсинг: {model_url}")
+                        await _parse_product(
+                            crawler, scraper, model_url, url_discovery,
+                            validator, exporter, db, embedding_gen,
+                            description_gen, skip_images, skip_ai, stats, storage
+                        )
 
                 except Exception as e:
                     logger.error(f"❌ Ошибка парсинга коллекции {collection_url}: {e}")

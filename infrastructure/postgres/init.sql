@@ -137,11 +137,22 @@ CREATE INDEX IF NOT EXISTS idx_parsing_logs_started ON parsing_logs(started_at D
 -- ========================================
 ALTER TABLE products DROP CONSTRAINT IF EXISTS valid_category;
 ALTER TABLE products ADD CONSTRAINT valid_category
-CHECK (category IN ('Двери межкомнатные', 'Стеновые панели', 'Порталы каминные', 'Другое'));
+CHECK (category IN (
+    'Двери межкомнатные', 'Стеновые панели', 'Порталы каминные', 'Другое',
+    'Скрытые двери', 'Входные двери', 'Межкомнатные перегородки',
+    'Мебель', 'Декоративные рейки', 'Зеркала', 'Противопожарные двери',
+    'Специализированные двери', 'Дверной декор', 'Дверная фурнитура',
+    'Системы открывания', 'Корпусная мебель'
+));
 
 ALTER TABLE products DROP CONSTRAINT IF EXISTS valid_style;
 ALTER TABLE products ADD CONSTRAINT valid_style
-CHECK (style IN ('классика', 'неоклассика', 'современный', 'минимализм', 'лофт', 'скандинавский', 'арт-деко', 'unknown'));
+CHECK (style IN (
+    'классика', 'неоклассика', 'современный', 'минимализм',
+    'лофт', 'скандинавский', 'арт-деко', 'unknown',
+    'классический', 'неоклассический', 'дизайнерский',
+    'джапанди', 'бионика', 'другое'
+));
 
 -- ========================================
 -- Composite indexes
