@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.config import settings
 from app.parser.crawler import Crawler
 from app.parser.scraper import Scraper
+from bs4 import BeautifulSoup
 from app.parser.url_discovery import URLDiscovery
 from app.downloader.image_downloader import ImageDownloader
 from app.downloader.storage import StorageManager
@@ -37,6 +38,65 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+async def _parse_product(
+    crawler, scraper, product_url, url_discovery,
+    validator, exporter, db, embedding_gen,
+    description_gen, skip_images, skip_ai, stats, storage
+):
+    """Парсинг одного продукта"""
+    try:
+        product_html = crawler.get_page(product_url)
+        product_data = scraper.parse_product_page(product_html)
+        product_data["product_url"] = product_url
+        product_data["slug"] = product_url.rstrip("/").split("/")[-1]
+
+        # Скачивание изображений
+        if not skip_images and product_data.get("image_urls"):
+            downloader = ImageDownloader()
+            results = await downloader.download_images(
+                product_data["image_urls"],
+                subdir="products"
+            )
+            downloaded = [p for p in results.values() if p]
+            stats["images_downloaded"] += len(downloaded)
+
+            if downloaded:
+                product_data["main_image_url"] = downloaded[0]
+
+        # AI анализ
+        if not skip_ai:
+            ai_description = await description_gen.generate_from_text(product_data)
+            if ai_description:
+                product_data["ai_semantic_description"] = ai_description.get(
+                    "full_description", ""
+                )
+                stats["ai_descriptions_generated"] += 1
+
+        # Валидация и экспорт
+        validation_result = validator.validate_product(product_data)
+        if validation_result[0]:
+            cleaned = validator.clean_product(product_data)
+            async with db.session() as session:
+                product = await exporter.export_product(session, cleaned)
+                await session.commit()
+
+                # Генерация embedding
+                if not skip_ai and product:
+                    embedding = await embedding_gen.generate_for_product(cleaned)
+                    async with db.session() as emb_session:
+                        await exporter.export_embedding(
+                            emb_session, product.id, embedding
+                        )
+                        await emb_session.commit()
+
+            stats["products_processed"] += 1
+            url_discovery.mark_visited(product_url)
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка парсинга продукта {product_url}: {e}")
+        stats["errors"] += 1
 
 
 async def run_full_parse(skip_images: bool = False, skip_ai: bool = False):
@@ -99,68 +159,41 @@ async def run_full_parse(skip_images: bool = False, skip_ai: bool = False):
                     storage.save_html(html, f"collection_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.html")
 
                     scraper = Scraper()
-                    product_urls = scraper.parse_collection_page(html)
-                    url_discovery.add_url(collection_url)
-                    stats["products_found"] += len(product_urls)
+                    # parse_collection_page теперь возвращает URL моделей/продуктов
+                    model_urls = scraper.parse_collection_page(html)
+                    url_discovery.mark_visited(collection_url)
 
-                    # 2. Парсинг каждого продукта
-                    for product_url in product_urls:
-                        if url_discovery.is_visited(product_url):
+                    if not model_urls:
+                        logger.warning(f"⚠️ Не найдено моделей в {collection_url}")
+                        continue
+
+                    logger.info(f"📦 Найдено {len(model_urls)} моделей/продуктов в {collection_url}")
+
+                    # Каждый URL модели может содержать конкретные продукты
+                    for model_url in model_urls:
+                        if url_discovery.is_visited(model_url):
                             continue
 
-                        logger.info(f"📦 Парсинг продукта: {product_url}")
+                        # Если URL содержит достаточно сегментов — это уже продукт
+                        path_parts = [p for p in model_url.split("/") if p]
+                        catalog_idx = path_parts.index("catalog") if "catalog" in path_parts else -1
 
-                        try:
-                            product_html = crawler.get_page(product_url)
-                            product_data = scraper.parse_product_page(product_html)
-                            product_data["product_url"] = product_url
-
-                            # 3. Скачивание изображений
-                            if not skip_images and product_data.get("image_urls"):
-                                downloader = ImageDownloader()
-                                results = await downloader.download_images(
-                                    product_data["image_urls"],
-                                    subdir="products"
-                                )
-                                downloaded = [p for p in results.values() if p]
-                                stats["images_downloaded"] += len(downloaded)
-
-                                if downloaded:
-                                    product_data["main_image_url"] = downloaded[0]
-
-                            # 4. AI анализ
-                            if not skip_ai:
-                                ai_description = await description_gen.generate_from_text(product_data)
-                                if ai_description:
-                                    product_data["ai_semantic_description"] = ai_description.get(
-                                        "full_description", ""
-                                    )
-                                    stats["ai_descriptions_generated"] += 1
-
-                            # 5. Валидация и экспорт
-                            validation_result = validator.validate_product(product_data)
-                            if validation_result[0]:
-                                cleaned = validator.clean_product(product_data)
-                                async with db.session() as session:
-                                    product = await exporter.export_product(session, cleaned)
-                                    await session.commit()
-
-                                    # Генерация embedding
-                                    if not skip_ai:
-                                        embedding = await embedding_gen.generate_for_product(cleaned)
-                                        async with db.session() as emb_session:
-                                            await exporter.export_embedding(
-                                                emb_session, product.id, embedding
-                                            )
-                                            await emb_session.commit()
-
-                                stats["products_processed"] += 1
-                                url_discovery.mark_visited(product_url)
-
-                        except Exception as e:
-                            logger.error(f"❌ Ошибка парсинга продукта {product_url}: {e}")
-                            stats["errors"] += 1
-                            continue
+                        if catalog_idx >= 0 and len(path_parts) - catalog_idx >= 4:
+                            # Это URL конкретного продукта: /catalog/category/model/product/
+                            logger.info(f"📦 Парсинг продукта: {model_url}")
+                            await _parse_product(
+                                crawler, scraper, model_url, url_discovery,
+                                validator, exporter, db, embedding_gen,
+                                description_gen, skip_images, skip_ai, stats, storage
+                            )
+                        else:
+                            # Это страница модели — парсим как страницу продукта
+                            logger.info(f"🔍 Парсинг модели: {model_url}")
+                            await _parse_product(
+                                crawler, scraper, model_url, url_discovery,
+                                validator, exporter, db, embedding_gen,
+                                description_gen, skip_images, skip_ai, stats, storage
+                            )
 
                 except Exception as e:
                     logger.error(f"❌ Ошибка парсинга коллекции {collection_url}: {e}")

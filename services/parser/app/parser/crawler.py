@@ -83,8 +83,25 @@ class Crawler:
             WebDriverWait(self.driver, settings.PARSER_TIMEOUT).until(
                 EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
+
+            # Для каталога — ждем рендеринга продуктов (JS)
+            if "/catalog/" in url:
+                # Пробуем ждать появления карточек продуктов
+                try:
+                    WebDriverWait(self.driver, 15).until(
+                        EC.presence_of_element_located(
+                            (By.CSS_SELECTOR, "a[href*='/catalog/'][href*='/'], .product-card, .catalog-item, .product-item, .swiper-slide a")
+                        )
+                    )
+                except TimeoutException:
+                    logger.warning(f"⏱️ Продукты не отрендерились за 15 сек, продолжаем с текущим HTML")
+
             # Дополнительная задержка для динамического контента
             time.sleep(settings.PARSER_SCRAPING_DELAY)
+
+            # Скроллим вниз для подгрузки контента
+            self._scroll_down()
+
             return self.driver.page_source
 
         except TimeoutException:
@@ -93,6 +110,22 @@ class Crawler:
         except WebDriverException as e:
             logger.error(f"❌ Ошибка WebDriver: {e}")
             raise
+
+    def _scroll_down(self):
+        """Прокрутить страницу вниз для подгрузки контента"""
+        try:
+            last_height = self.driver.execute_script("return document.body.scrollHeight")
+            for _ in range(3):  # 3 скролла достаточно
+                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(1)
+                new_height = self.driver.execute_script("return document.body.scrollHeight")
+                if new_height == last_height:
+                    break
+                last_height = new_height
+            # Вернуться наверх
+            self.driver.execute_script("window.scrollTo(0, 0);")
+        except Exception as e:
+            logger.debug(f"Скролл не удался: {e}")
 
     def get_all_links(self, url: str) -> List[str]:
         """

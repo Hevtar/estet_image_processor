@@ -51,87 +51,132 @@ class Scraper:
         """
         Парсит страницу коллекции и возвращает ссылки на продукты.
 
-        Args:
-            html: HTML контент страницы коллекции
+        Сайт Nuxt.js SPA — продукты рендерятся через JS.
+        Стратегия: ищем ссылки на модели в хлебных крошках и навигации,
+        а также в карточках товаров если они подгрузились.
 
         Returns:
-            List[str]: URL продуктов
+            List[str]: URL продуктов (моделей)
         """
         soup = BeautifulSoup(html, "html.parser")
         product_urls = []
 
-        # Селекторы для карточек продуктов на ESTET
-        selectors = [
+        # Стратегия 1: Ищем внутренние навигационные ссылки на модели
+        # (коллекции/модели в aside internal-navigation)
+        nav_links = soup.select("a.internal-navigation__item[href]")
+        for link in nav_links:
+            href = link.get("href", "")
+            # Пропускаем "Все двери" и "Коллекции"
+            if href and '/catalog/' in href and 'collections' not in href:
+                from urllib.parse import urljoin
+                full_url = urljoin(self.base_url, href)
+                if full_url not in product_urls:
+                    product_urls.append(full_url)
+
+        # Стратегия 2: Ищем ссылки на модели в хлебных крошках
+        breadcrumbs = soup.select("ul.breadcrumbs li a[href]")
+        for link in breadcrumbs:
+            href = link.get("href", "")
+            if href and '/catalog/' in href and '/catalog/mezhkomnatnye-dveri/' != href:
+                from urllib.parse import urljoin
+                full_url = urljoin(self.base_url, href)
+                if full_url not in product_urls:
+                    product_urls.append(full_url)
+
+        # Стратегия 3: Ищем карточки продуктов (если JS отрендерил)
+        product_selectors = [
             "a.product-card__link",
             "a.product-item__link",
-            "a.product-card",
-            "a.catalog-item",
-            ".products-list a[href*='/product/']",
-            ".catalog-grid a[href*='/product/']",
-            ".products a[href*='/product/']",
-            "a[href*='/product/']",
+            ".product-card a[href]",
+            ".product-item a[href]",
+            ".catalog-item a[href]",
+            ".swiper-slide a[href]",
         ]
 
-        for selector in selectors:
+        for selector in product_selectors:
             links = soup.select(selector)
             if links:
                 for link in links:
                     href = link.get("href", "")
-                    if href:
+                    if href and '/catalog/' in href:
                         from urllib.parse import urljoin
                         full_url = urljoin(self.base_url, href)
-                        # Фильтруем только product страницы
-                        if '/product/' in full_url:
+                        if full_url not in product_urls:
                             product_urls.append(full_url)
-                logger.info(f"🔗 Найдено {len(product_urls)} продуктов (селектор: {selector})")
                 break
 
-        # Убираем дубликаты
-        unique_urls = list(set(product_urls))
-        logger.info(f"🔗 Уникальных продуктов: {len(unique_urls)}")
-        return unique_urls
+        # Стратегия 4: Ищем ВСЕ ссылки содержащие /catalog/ и не ведущие на разделы
+        if not product_urls:
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                # Ищем URL уровня модели: /catalog/category/model/
+                parts = [p for p in href.split("/") if p]
+                if len(parts) >= 3 and parts[0] == "catalog":
+                    from urllib.parse import urljoin
+                    full_url = urljoin(self.base_url, href)
+                    if full_url not in product_urls:
+                        product_urls.append(full_url)
+
+        logger.info(f"🔗 Найдено {len(product_urls)} ссылок на странице коллекции")
+        return product_urls
 
     def _extract_name(self, soup: BeautifulSoup) -> str:
-        """Извлекает название продукта"""
-        selectors = [
-            "h1.product-title",
-            "h1.product-name",
-            "h1",
-            ".product-name",
-            ".product-title",
-            ".product__title",
-        ]
-        for selector in selectors:
-            elem = soup.select_one(selector)
-            if elem:
-                return elem.get_text(strip=True)
+        """Извлекает название продукта — h1[itemprop="name"]"""
+        elem = soup.select_one('h1[itemprop="name"]')
+        if elem:
+            return elem.get_text(strip=True)
+        # Fallback
+        elem = soup.select_one("h1")
+        if elem:
+            return elem.get_text(strip=True)
         return "Неизвестный продукт"
 
     def _extract_category(self, soup: BeautifulSoup) -> str:
-        """Извлекает категорию продукта"""
-        selectors = [".product-category", ".category", ".breadcrumb-item:last"]
-        for selector in selectors:
-            elem = soup.select_one(selector)
-            if elem:
-                return elem.get_text(strip=True)
-
-        # Пытаемся определить из URL
-        if "/doors/" in soup.base.get("href", "") if soup.base else "":
-            return "Двери межкомнатные"
+        """Извлекает категорию из хлебных крошек"""
+        crumbs = soup.select("ul.breadcrumbs li a")
+        for crumb in crumbs:
+            href = crumb.get("href", "")
+            if "/catalog/mezhkomnatnye-dveri/" == href:
+                return "Двери межкомнатные"
+            elif "/catalog/skrytye-dveri/" == href:
+                return "Скрытые двери"
+            elif "/catalog/vkhodnye-dveri/" == href:
+                return "Входные двери"
+            elif "/catalog/stenovye-paneli/" == href:
+                return "Стеновые панели"
+            elif "/catalog/mezhkomnatnye-peregorodki/" == href:
+                return "Межкомнатные перегородки"
         return "Другое"
 
+    def _extract_collection(self, soup: BeautifulSoup) -> str:
+        """Извлекает коллекцию из ссылки"""
+        link = soup.select_one("a.collection_link .collection_name")
+        if link:
+            return link.get_text(strip=True)
+        # Из хлебных крошек
+        crumbs = soup.select("ul.breadcrumbs li a")
+        for crumb in crumbs:
+            href = crumb.get("href", "")
+            parts = [p for p in href.split("/") if p]
+            if len(parts) == 3 and parts[0] == "catalog":
+                # Это уровень коллекции
+                return crumb.get_text(strip=True)
+        return ""
+
     def _extract_style(self, soup: BeautifulSoup) -> str:
-        """Извлекает стиль продукта"""
+        """Извлекает стиль из фильтров и описания"""
         text = soup.get_text().lower()
 
         style_patterns = {
-            "неоклассика": ["неоклассик", "neoclassic"],
-            "современный": ["современн", "modern", "contemporary"],
-            "минимализм": ["минимализм", "minimalism", "минималист"],
-            "классика": ["классик", "classic", "классическ"],
-            "лофт": ["лофт", "loft"],
-            "скандинавский": ["скандинавск", "scandi"],
-            "арт-деко": ["арт-деко", "art deco", "art-deco"],
+            "минимализм": ["минимализм"],
+            "скандинавский": ["скандинавск"],
+            "классический": ["классическ"],
+            "неоклассический": ["неоклассическ"],
+            "современный": ["современн"],
+            "дизайнерский": ["дизайнерск"],
+            "джапанди": ["джапанди"],
+            "бионика": ["бионика"],
+            "другое": ["другое"],
         }
 
         for style, patterns in style_patterns.items():
@@ -141,141 +186,132 @@ class Scraper:
         return "unknown"
 
     def _extract_color(self, soup: BeautifulSoup) -> str:
-        """Извлекает цвет продукта"""
+        """Извлекает цвет из свойств продукта"""
+        # Ищем "Цвет:" label
+        for prop_block in soup.select(".property"):
+            name_elem = prop_block.select_one(".property-name")
+            if name_elem and "цвет" in name_elem.get_text(strip=True).lower():
+                items = prop_block.select(".filter__item--label, .property-item span")
+                if items:
+                    return items[0].get_text(strip=True)
+
+        # Fallback из текста
         text = soup.get_text().lower()
-
-        color_patterns = {
-            "белый": ["белый", "белоснежный", "white"],
-            "серый": ["серый", "grey", "графит"],
-            "коричневый": ["коричневый", "brown", "венге", "орех", "дуб"],
-            "черный": ["черный", "black", "чёрный"],
-            "бежевый": ["бежевый", "beige", "светлый"],
+        color_map = {
+            "белый": ["белый", "white", "ral-9002", "ral 9002"],
+            "серый": ["серый", "grey", "ral-7006"],
+            "коричневый": ["коричнев", "венге", "орех", "дуб"],
+            "бежевый": ["бежевый"],
+            "черный": ["черный", "black"],
         }
-
-        for color, patterns in color_patterns.items():
+        for color, patterns in color_map.items():
             if any(p in text for p in patterns):
                 return color
-
         return "unknown"
 
     def _extract_material(self, soup: BeautifulSoup) -> str:
-        """Извлекает материал продукта"""
-        selectors = [".product-material", ".material", ".specs-table td"]
-        for selector in selectors:
-            elem = soup.select_one(selector)
-            if elem:
-                text = elem.get_text(strip=True)
-                if "массив" in text.lower():
-                    return "Массив"
-                elif "шпон" in text.lower():
-                    return "Шпон"
-                elif "экошпон" in text.lower():
-                    return "Экошпон"
-                elif "МДФ" in text:
-                    return "МДФ"
-                return text
+        """Извлекает материал из свойств"""
+        text = soup.get_text().lower()
+        materials = {
+            "Шпон": ["шпон"],
+            "Эмаль": ["эмаль"],
+            "Массив": ["массив"],
+            "Экошпон": ["экошпон"],
+            "МДФ": ["мдф"],
+            "Грунт": ["грунт"],
+            "Покрытие": ["покрытие"],
+        }
+        for material, patterns in materials.items():
+            if any(p in text for p in patterns):
+                return material
         return "Не указан"
 
     def _extract_finish_type(self, soup: BeautifulSoup) -> str:
-        """Извлекает тип отделки"""
+        """Извлекает тип отделки из свойств"""
+        for prop_block in soup.select(".property"):
+            name_elem = prop_block.select_one(".property-name")
+            if name_elem and "оформление" in name_elem.get_text(strip=True).lower():
+                items = prop_block.select(".property-item span")
+                if items:
+                    return items[0].get_text(strip=True)
+
         text = soup.get_text().lower()
-        if "матов" in text:
-            return "матовый"
-        elif "глянц" in text:
-            return "глянец"
-        elif "эмаль" in text:
+        if "эмаль" in text:
             return "эмаль"
+        elif "шпон" in text:
+            return "шпон"
         return "unknown"
 
     def _extract_price(self, soup: BeautifulSoup) -> Optional[float]:
-        """Извлекает цену"""
-        selectors = [".price-value", ".product-price", ".price", ".cost"]
-        for selector in selectors:
-            elem = soup.select_one(selector)
-            if elem:
-                text = elem.get_text(strip=True)
-                # Извлекаем число из текста
-                match = re.search(r"(\d[\d\s]*)", text)
-                if match:
-                    return float(match.group(1).replace(" ", ""))
+        """Извлекает цену — .price_value"""
+        elem = soup.select_one(".price_value")
+        if elem:
+            text = elem.get_text(strip=True).replace(" ", "")
+            try:
+                return float(text)
+            except ValueError:
+                pass
         return None
 
     def _extract_description(self, soup: BeautifulSoup) -> str:
-        """Извлекает описание продукта"""
-        selectors = [".product-description", ".description", ".product-text", ".full-description"]
-        for selector in selectors:
-            elem = soup.select_one(selector)
-            if elem:
-                return elem.get_text(strip=True)
+        """Извлекает описание — .product-description__info"""
+        desc = soup.select_one(".product-description__info")
+        if desc:
+            # Получаем текст без лишних пробелов
+            text = desc.get_text(separator=" ", strip=True)
+            # Убираем повторяющиеся пробелы
+            import re
+            text = re.sub(r"\s+", " ", text)
+            return text[:2000]  # Ограничиваем длину
         return ""
 
     def _extract_image_urls(self, soup: BeautifulSoup) -> List[str]:
-        """Извлекает URL изображений"""
+        """Извлекает URL изображений — .product-detail-slider_big img"""
         image_urls = []
-        selectors = [
-            ".product-gallery img",
-            ".product-images img",
-            ".gallery img",
-            ".product-photo img",
-            ".product__image img",
-            ".product-image img",
-            ".product-gallery picture img",
-            "picture source img",
-        ]
+        images = soup.select(".product-detail-slider_big .swiper-slide picture img")
+        if not images:
+            images = soup.select(".product-detail-slider_big img")
+        if not images:
+            images = soup.select(".product-detail-slider img")
+        if not images:
+            # Fallback: все img с admin.estetdveri.ru
+            images = soup.select('img[src*="admin.estetdveri.ru"]')
 
-        for selector in selectors:
-            images = soup.select(selector)
-            if images:
-                for img in images:
-                    # Проверяем src, data-src, data-lazy-src
-                    src = img.get("src") or img.get("data-src") or img.get("data-lazy-src")
-                    if src:
-                        from urllib.parse import urljoin
-                        image_urls.append(urljoin(self.base_url, src))
-                break
-
-        # Если не нашли через селекторы, ищем все img в product-контейнере
-        if not image_urls:
-            product_containers = soup.select(".product, .product-card, .product-item")
-            for container in product_containers:
-                imgs = container.find_all("img")
-                for img in imgs:
-                    src = img.get("src") or img.get("data-src") or img.get("data-lazy-src")
-                    if src:
-                        from urllib.parse import urljoin
-                        image_urls.append(urljoin(self.base_url, src))
+        for img in images:
+            src = img.get("src") or img.get("data-src")
+            if src:
+                from urllib.parse import urljoin
+                image_urls.append(urljoin(self.base_url, src))
 
         logger.info(f"🖼️ Найдено {len(image_urls)} изображений")
         return image_urls
 
     def _extract_sizes(self, soup: BeautifulSoup) -> List[str]:
-        """Извлекает доступные размеры"""
+        """Извлекает размеры (высота/ширина) из свойств"""
         sizes = []
-        selectors = [".product-sizes li", ".sizes-list li", ".size-option"]
-        for selector in selectors:
-            elems = soup.select(selector)
-            if elems:
-                for elem in elems:
-                    sizes.append(elem.get_text(strip=True))
-                break
+        for prop_block in soup.select(".property.size"):
+            name_elem = prop_block.select_one(".property-name")
+            if not name_elem:
+                continue
+            name = name_elem.get_text(strip=True).lower()
+            items = prop_block.select(".property-item span")
+            for item in items:
+                val = item.get_text(strip=True)
+                if val:
+                    sizes.append(f"{name}: {val}")
         return sizes
 
     def _extract_special_features(self, soup: BeautifulSoup) -> List[str]:
-        """Извлекает особенности продукта"""
+        """Извлекает особенности из свойств"""
         features = []
-        text = soup.get_text().lower()
-
-        feature_keywords = [
-            "звукоизоляци",
-            "влагостойк",
-            "огнестойк",
-            "раздвижн",
-            "скрывт",
-            "телескопич",
-        ]
-
-        for keyword in feature_keywords:
-            if keyword in text:
-                features.append(keyword.capitalize())
-
-        return features
+        for prop_block in soup.select(".property"):
+            name_elem = prop_block.select_one(".property-name")
+            if name_elem:
+                name = name_elem.get_text(strip=True)
+                # Собираем все возможные значения
+                items = prop_block.select(".property-items > *")
+                for item in items:
+                    val = item.get_text(strip=True)
+                    if val and val not in features:
+                        features.append(f"{name}: {val}")
+        return features[:10]  # Ограничиваем
