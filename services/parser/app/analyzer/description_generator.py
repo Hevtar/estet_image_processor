@@ -256,7 +256,14 @@ class DescriptionGenerator:
                 temperature=0.2,
             )
 
-            result = self._parse_json_response(response.get("content", ""))
+            # analyze_image может вернуть уже распарсенный JSON (если ответ был валидный JSON)
+            # или {"content": "текст"} (если не JSON)
+            if response.get("panel_description") or response.get("full_description"):
+                # Ответ уже распарсен — используем напрямую
+                result = response
+            else:
+                # Ответ в поле "content" — нужно распарсить
+                result = self._parse_json_response(response.get("content", ""))
 
             # Валидация результата
             full_desc = result.get("full_description", "")
