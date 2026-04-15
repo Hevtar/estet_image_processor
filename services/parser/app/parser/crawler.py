@@ -125,7 +125,7 @@ class Crawler:
                 )
                 logger.debug(f"✅ Контент найден: {selector}")
                 return
-            except TimeoutException:
+            except (TimeoutException, Exception):
                 continue
 
         logger.warning("⏱️ Ни один селектор SPA контента не сработал")
