@@ -274,6 +274,7 @@ async def run_single_collection(
                     scraper=scraper,
                     product_url=product_url,
                     collection_id=collection_id,
+                    collection_info=collection_data,
                     url_discovery=url_discovery,
                     validator=validator,
                     exporter=exporter,
@@ -312,6 +313,7 @@ async def _parse_single_product(
     scraper,
     product_url: str,
     collection_id,
+    collection_info,
     url_discovery,
     validator,
     exporter,
@@ -381,6 +383,7 @@ async def _parse_single_product(
                             ai_result = await description_gen.generate_from_image(
                                 image_bytes=image_bytes,
                                 product_data=product_data,
+                                collection_info=collection_info,
                             )
                         else:
                             ai_result = await description_gen.generate_from_text(product_data)
@@ -392,6 +395,23 @@ async def _parse_single_product(
                             "full_description", ""
                         )
                         stats["ai_descriptions_generated"] += 1
+
+                        # Сохраняем стилевой анализ
+                        style_analysis = ai_result.get("style_analysis", {})
+
+                        if style_analysis.get("door_style"):
+                            # Перезаписываем поле style более точным значением от AI
+                            product_data["style"] = style_analysis["door_style"]
+                            product_data["door_style_description"] = style_analysis["door_style"]
+
+                        if style_analysis.get("compatible_interior_styles"):
+                            compatible = style_analysis["compatible_interior_styles"]
+                            product_data["compatible_styles"] = compatible
+                            logger.info(
+                                f"   🎨 Стиль: {style_analysis.get('door_style', '')[:60]}\n"
+                                f"   🏠 Совместимые: {', '.join(compatible[:4])}"
+                            )
+
                         logger.info(f"   ✨ AI описание сгенерировано")
 
                 except Exception as ai_err:

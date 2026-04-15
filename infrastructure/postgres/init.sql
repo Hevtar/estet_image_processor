@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS products (
     material VARCHAR(255),
     finish_type VARCHAR(100),
     special_features TEXT[],
+    compatible_styles TEXT[],
+    door_style_description TEXT,
 
     -- URLs
     product_url VARCHAR(500) NOT NULL,

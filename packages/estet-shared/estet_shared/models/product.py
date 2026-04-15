@@ -56,6 +56,8 @@ class Product(Base):
     material = Column(String(255))
     finish_type = Column(String(100))
     special_features = Column(ARRAY(Text))
+    compatible_styles = Column(ARRAY(Text))
+    door_style_description = Column(Text)
 
     # URLs
     product_url = Column(String(500), nullable=False)
