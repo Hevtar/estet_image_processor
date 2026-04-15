@@ -76,8 +76,8 @@ async def search_by_image(
         ranking = RankingService()
         ranked = ranking.rank(candidates, analysis)
 
-        # Берем top N
-        top_results = ranked[:max_results]
+        # Берем top N (ranked — это dict, конвертируем в список)
+        top_items = list(ranked.items())[:max_results]
 
         # Формируем ответ
         results = [
@@ -90,9 +90,9 @@ async def search_by_image(
                 ai_semantic_description=product.ai_semantic_description,
                 main_image_url=product.main_image_url,
                 product_url=product.product_url,
-                score=ranked.get(product, 0),
+                score=score,
             )
-            for product in top_results
+            for product, score in top_items
         ]
 
         return SearchResponse(
@@ -134,6 +134,8 @@ async def search_by_text(
         ranking = RankingService()
         ranked = ranking.rank(candidates, {"description": request.query})
 
+        top_items = list(ranked.items())[:request.max_results]
+
         results = [
             ProductResult(
                 id=product.id,
@@ -143,9 +145,9 @@ async def search_by_text(
                 ai_semantic_description=product.ai_semantic_description,
                 main_image_url=product.main_image_url,
                 product_url=product.product_url,
-                score=ranked.get(product, 0),
+                score=score,
             )
-            for product in ranked[:request.max_results]
+            for product, score in top_items
         ]
 
         return SearchResponse(
