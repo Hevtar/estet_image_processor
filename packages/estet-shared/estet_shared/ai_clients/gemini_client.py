@@ -19,7 +19,7 @@ class GeminiClient:
         self,
         api_key: str,
         api_url: str = "https://polza.ai/api/v2",
-        model: str = "google/gemini-2.0-flash-lite-001",
+        model: str = "google/gemini-2.5-flash-lite",
         max_retries: int = 3,
     ):
         self.api_key = api_key
