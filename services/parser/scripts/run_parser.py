@@ -400,9 +400,14 @@ async def _parse_single_product(
                         style_analysis = ai_result.get("style_analysis", {})
 
                         if style_analysis.get("door_style"):
-                            # Перезаписываем поле style более точным значением от AI
-                            product_data["style"] = style_analysis["door_style"]
+                            # Сохраняем ПОЛНОЕ описание стиля в отдельное поле (TEXT)
                             product_data["door_style_description"] = style_analysis["door_style"]
+                            # Поле style — берём короткое название стиля (первое слово/фраза до тире или запятой)
+                            short_style = style_analysis["door_style"].split("—")[0].split(",")[0].strip()
+                            if len(short_style) <= 100:
+                                product_data["style"] = short_style
+                            else:
+                                product_data["style"] = "unknown"
 
                         if style_analysis.get("compatible_interior_styles"):
                             compatible = style_analysis["compatible_interior_styles"]
