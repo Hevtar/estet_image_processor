@@ -25,7 +25,7 @@ class ParserSettings(BaseSettings):
     PARSER_HEADLESS_BROWSER: bool = True
     PARSER_SCRAPING_DELAY: float = 2.0
     PARSER_MAX_RETRIES: int = 3
-    PARSER_TIMEOUT: int = 30
+    PARSER_TIMEOUT: int = 60
     PARSER_IMAGES_PATH: str = "data/images"
     PARSER_JSON_OUTPUT_PATH: str = "data/processed"
 

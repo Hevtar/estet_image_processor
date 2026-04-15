@@ -74,7 +74,7 @@ class Crawler:
 
     def get_page(self, url: str) -> str:
         """
-        Получить HTML страницы.
+        Получить HTML страницы с retry-логикой.
         Для SPA: ждём рендеринга и скроллим для подгрузки.
         """
         if not self.driver:
@@ -83,26 +83,48 @@ class Crawler:
         full_url = urljoin(self.base_url, url)
         logger.info(f"📄 Загрузка: {full_url}")
 
+        last_error = None
+        for attempt in range(settings.PARSER_MAX_RETRIES):
+            try:
+                self.driver.get(full_url)
+
+                # Для каталога — ждём рендеринга контента
+                if "/catalog/" in url:
+                    self._wait_for_spa_content()
+
+                time.sleep(settings.PARSER_SCRAPING_DELAY)
+
+                # Скроллим для подгрузки ленивого контента
+                self._scroll_down()
+
+                return self.driver.page_source
+
+            except (TimeoutException, Exception) as e:
+                last_error = e
+                logger.warning(f"⚠️ Попытка {attempt + 1}/{settings.PARSER_MAX_RETRIES} не удалась: {type(e).__name__}")
+
+                # На последней попытке — перезапускаем драйвер
+                if attempt < settings.PARSER_MAX_RETRIES - 1:
+                    try:
+                        self._restart_driver()
+                    except Exception:
+                        pass
+                    time.sleep(2 ** attempt)  # Экспоненциальная задержка
+                continue
+
+        logger.error(f"❌ Все {settings.PARSER_MAX_RETRIES} попыток не удались для {full_url}")
+        raise last_error
+
+    def _restart_driver(self):
+        """Перезапускает WebDriver"""
         try:
-            self.driver.get(full_url)
-
-            # Для каталога — ждём рендеринга контента
-            if "/catalog/" in url:
-                self._wait_for_spa_content()
-
-            time.sleep(settings.PARSER_SCRAPING_DELAY)
-
-            # Скроллим для подгрузки ленивого контента
-            self._scroll_down()
-
-            return self.driver.page_source
-
-        except TimeoutException:
-            logger.error(f"⏱️ Timeout загрузки: {full_url}")
-            raise
-        except WebDriverException as e:
-            logger.error(f"❌ Ошибка WebDriver: {e}")
-            raise
+            if self.driver:
+                self.driver.quit()
+        except Exception:
+            pass
+        self.driver = None
+        self._setup_driver()
+        logger.info("🔄 WebDriver перезапущен")
 
     def _wait_for_spa_content(self):
         """Ждём появления контента, сгенерированного JS"""
